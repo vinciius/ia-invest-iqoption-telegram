@@ -121,6 +121,18 @@ class IQOptionTrading:
             print(f"Erro ao listar ativos: {str(e)}")
             return []
             
+    def get_asset_variations(self, active):
+        """
+        Retorna todas as variações possíveis do nome do ativo
+        """
+        variations = [
+            active,              # EURUSD
+            f"{active}-op",      # EURUSD-op
+            f"{active}-OTC",     # EURUSD-OTC
+            f"{active}:N"        # EURUSD:N
+        ]
+        return variations
+        
     def check_asset_open(self, active):
         """
         Verifica se um ativo está aberto para operar
@@ -148,9 +160,10 @@ class IQOptionTrading:
             actives = self.api.get_all_ACTIVES_OPCODE()
             print(f"Total de ativos encontrados: {len(actives)}")
             
-            if active not in actives:
-                return False, "Ativo não encontrado"
-                
+            # Pega todas as variações do nome do ativo
+            variations = self.get_asset_variations(active)
+            print(f"\nVerificando variações do ativo: {variations}")
+            
             # Verifica disponibilidade em diferentes modos
             print("\nVerificando disponibilidade...")
             all_open = self.api.get_all_open_time()
@@ -160,26 +173,18 @@ class IQOptionTrading:
             
             for type_name in all_open:
                 print(f"\nAtivos disponíveis em {type_name}:")
-                available = [name for name, data in all_open[type_name].items() if data['open']]
+                available = []
+                for name, data in all_open[type_name].items():
+                    if data['open']:
+                        available.append(name)
+                        # Verifica se é uma das variações que procuramos
+                        if name in variations:
+                            print(f"✅ Encontrado {name} disponível em {type_name}")
+                            return True, (type_name, name)
                 print(f"Total: {len(available)}")
                 if available:
                     print("Exemplos:", available[:5])
             
-            # Verifica digital
-            if 'digital' in all_open and active in all_open['digital']:
-                if all_open['digital'][active]['open']:
-                    return True, "digital"
-                    
-            # Verifica binário
-            if 'binary' in all_open and active in all_open['binary']:
-                if all_open['binary'][active]['open']:
-                    return True, "binary"
-                    
-            # Verifica turbo
-            if 'turbo' in all_open and active in all_open['turbo']:
-                if all_open['turbo'][active]['open']:
-                    return True, "turbo"
-                    
             return False, "Ativo fechado em todos os modos"
             
         except Exception as e:
@@ -198,13 +203,15 @@ class IQOptionTrading:
                 
             # Verifica se o ativo está disponível
             print(f"\nVerificando disponibilidade do ativo {active}...")
-            is_open, mode = self.check_asset_open(active)
+            is_open, mode_info = self.check_asset_open(active)
             
             if not is_open:
-                print(f"Ativo {active} não está disponível: {mode}")
-                return False, f"Ativo indisponível: {mode}", 0
+                print(f"Ativo {active} não está disponível: {mode_info}")
+                return False, f"Ativo indisponível: {mode_info}", 0
                 
-            print(f"✅ Ativo {active} está disponível no modo {mode}")
+            # Extrai o modo e o nome correto do ativo
+            mode, correct_active = mode_info
+            print(f"✅ Ativo {correct_active} está disponível no modo {mode}")
             
             # Configura a operação
             if direction.lower() == "call":
@@ -212,22 +219,22 @@ class IQOptionTrading:
             else:
                 action = "sell"
                 
-            # Tenta a operação no modo disponível
+            # Executa a operação
             try:
-                print(f"\nExecutando operação {action.upper()} em {active}...")
+                print(f"\nExecutando operação {action.upper()} em {correct_active}...")
                 print(f"Valor: ${amount} | Duração: {duration}m")
                 
                 # Força reconexão antes da operação
                 self.api.check_connect()
                 
-                # Executa a operação
+                # Faz a operação
                 if mode == "digital":
-                    print("Tentando operação digital...")
-                    result = self.api.buy_digital_spot(active, amount, action, duration)
+                    print("Executando operação digital...")
+                    result = self.api.buy_digital_spot(correct_active, amount, action, duration)
                 else:
-                    print("Tentando operação binária...")
-                    result = self.api.buy(amount, active, direction, duration)
-                
+                    print("Executando operação binária...")
+                    result = self.api.buy(amount, correct_active, direction, duration)
+                    
                 # Trata o retorno
                 if isinstance(result, (tuple, list)):
                     if len(result) >= 2:
@@ -239,7 +246,7 @@ class IQOptionTrading:
                     
                 print(f"Retorno da operação: check={check}, id={operation_id}")
                 
-                if not check or not operation_id or isinstance(operation_id, str):
+                if not check or not operation_id:
                     error_msg = operation_id if isinstance(operation_id, str) else "Falha desconhecida"
                     return False, f"Falha na operação: {error_msg}", 0
                     
