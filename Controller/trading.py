@@ -233,21 +233,35 @@ class IQOptionTrading:
                     result = self.api.buy_digital_spot(correct_active, amount, action, duration)
                 else:
                     print("Executando operação binária...")
-                    result = self.api.buy(amount, correct_active, direction, duration)
+                    try:
+                        result = self.api.buy(amount, correct_active, direction, duration)
+                        print(f"Retorno bruto da operação: {result}")
+                        
+                        # Se retornou uma tupla/lista
+                        if isinstance(result, (tuple, list)):
+                            # Pega apenas os dois primeiros valores
+                            check = result[0] if len(result) > 0 else False
+                            operation_id = result[1] if len(result) > 1 else None
+                        else:
+                            check = bool(result)
+                            operation_id = None
+                            
+                    except ValueError as e:
+                        print(f"ValueError ao desempacotar resultado: {str(e)}")
+                        print("Tentando extrair resultado...")
+                        
+                        # Se der erro no desempacotamento, tenta pegar o resultado bruto
+                        if isinstance(result, (tuple, list)) and len(result) > 0:
+                            check = result[0]
+                            operation_id = result[1] if len(result) > 1 else None
+                        else:
+                            check = False
+                            operation_id = None
                     
-                # Trata o retorno
-                if isinstance(result, (tuple, list)):
-                    if len(result) >= 2:
-                        check, operation_id = result
-                    else:
-                        check, operation_id = result[0], None
-                else:
-                    check, operation_id = result, None
-                    
-                print(f"Retorno da operação: check={check}, id={operation_id}")
+                print(f"Resultado processado: check={check}, id={operation_id}")
                 
                 if not check or not operation_id:
-                    error_msg = operation_id if isinstance(operation_id, str) else "Falha desconhecida"
+                    error_msg = str(operation_id) if operation_id else "Falha desconhecida"
                     return False, f"Falha na operação: {error_msg}", 0
                     
                 print(f"✅ Operação iniciada com sucesso. ID: {operation_id}")
@@ -266,14 +280,19 @@ class IQOptionTrading:
                             
                         print(f"Resultado bruto: {result}")
                         
-                        if isinstance(result, (list, tuple)) and len(result) >= 1:
-                            win_amount = result[0]
-                            if win_amount > 0:
-                                return True, "Operação vencedora!", win_amount
-                            elif win_amount < 0:
-                                return True, "Operação perdedora", win_amount
-                            else:
-                                return True, "Operação empatada", 0
+                        if isinstance(result, (list, tuple)):
+                            if len(result) >= 2:
+                                status, win_amount = result
+                                # Converte para float se for string
+                                if isinstance(win_amount, str):
+                                    win_amount = float(win_amount)
+                                    
+                                if status in ['win', 'loose']:  # Note: API retorna 'loose' ao invés de 'loss'
+                                    return True, f"Operação {status}", win_amount
+                            
+                        # Se chegou aqui, resultado ainda não está disponível
+                        time.sleep(1)
+                        continue
                     except Exception as e:
                         print(f"Erro ao verificar resultado: {str(e)}")
                     time.sleep(1)
